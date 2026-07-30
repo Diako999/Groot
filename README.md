@@ -28,7 +28,7 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python -m groot.cli chat
+python -m groot.cli
 ```
 
 Chats with the local model over Ollama's REST API (`http://localhost:11434` by default).

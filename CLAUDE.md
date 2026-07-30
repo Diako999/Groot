@@ -30,9 +30,12 @@ Read that file for the phase spec before starting any phase — don't re-derive 
 
 ## Status
 
-- **Phase 1 (Foundation): in progress.** Scaffold done. Ollama install/model pull/chat
-  verification pending user action — see task list.
-- Phases 2–7: not started.
+- **Phase 1 (Foundation): complete.** Ollama installed (v0.32.5, via GitHub release —
+  ollama.com's website returns 403 on this network, but registry.ollama.ai works fine for
+  pulls), running as a systemd service. Model `qwen2.5-coder:7b-instruct-q4_K_M` pulled
+  (4.7GB). `python -m groot.cli` verified working end-to-end (no `chat` subcommand needed —
+  Typer collapses to single-command mode with only one command registered).
+- Phases 2–7: not started. Confirm with user before starting Phase 2.
 
 ## Future requirements (noted now, built later)
 
@@ -42,6 +45,14 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   tasks (Phase 5). Don't install anything for this in Phase 1–3. When Phase 4/5 starts,
   design how Groot selects and invokes these capabilities (likely: a tool/skill registry
   it can call into, gated by the same permission system as file/command access).
+
+- **Phase 3 — voice activation, speaker-locked.** User wants Groot voice-triggered
+  (wake word, not manual launch every time) AND gated so it only activates on *the user's*
+  voice specifically — not anyone else's. This is beyond the roadmap's original Phase 3
+  scope (which only mentioned optional TTS for output). Needs two offline local pieces:
+  a wake-word/activation engine, and a speaker verification step (voiceprint match against
+  an enrolled sample of the user) before Groot treats input as a real command. Must stay
+  fully offline per the hard constraints above. Not started — build in Phase 3.
 
 - **Phase 4 — access model, decided.** User initially asked for full unrestricted
   file/command access by default with a toggle to restrict. Flagged that this contradicts
