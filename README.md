@@ -34,6 +34,12 @@ python -m groot.cli
 Chats with the local model over Ollama's REST API (`http://localhost:11434` by default).
 No data leaves the machine.
 
+Every turn is stored in a local Chroma vector store (`memory/chroma/`) and relevant past
+turns are retrieved and injected as context on later turns — including in a brand new
+`groot` process, not just within one chat session. Embeddings are computed via Ollama's
+`nomic-embed-text` model, so this stays on the same offline, localhost-only channel as
+everything else — no calls to any embedding API.
+
 ## Project layout
 
 ```

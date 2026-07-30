@@ -35,7 +35,15 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   pulls), running as a systemd service. Model `qwen2.5-coder:7b-instruct-q4_K_M` pulled
   (4.7GB). `python -m groot.cli` verified working end-to-end (no `chat` subcommand needed —
   Typer collapses to single-command mode with only one command registered).
-- Phases 2–7: not started. Confirm with user before starting Phase 2.
+- **Phase 2 (Memory): complete.** `groot/memory.py` — Chroma PersistentClient at
+  `memory/chroma/`, embeddings via Ollama's `nomic-embed-text` (274MB, pulled) through a
+  custom `OllamaEmbeddingFunction` (must inherit `chromadb.api.types.EmbeddingFunction`,
+  not just structurally match it, or `embed_query` is missing at query time). Wired into
+  `cli.py`: query relevant memories before each model call (injected as a system message,
+  not persisted back into `history`), store both sides of every turn after. Verified
+  retrieval works across a brand-new process (not just same-session history) — a fact
+  stated in one `groot` invocation was correctly recalled in a completely separate one.
+- Phases 3–7: not started. Confirm with user before starting Phase 3.
 
 ## Future requirements (noted now, built later)
 
@@ -44,15 +52,29 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   This only makes sense once Groot has tool access (Phase 4) and can plan/execute multi-step
   tasks (Phase 5). Don't install anything for this in Phase 1–3. When Phase 4/5 starts,
   design how Groot selects and invokes these capabilities (likely: a tool/skill registry
-  it can call into, gated by the same permission system as file/command access).
+  it can call into, gated by the same permission system as file/command access). User's
+  laptop OS is Ubuntu (26.04) — these skills should target Linux/Ubuntu specifically
+  (command syntax, package manager assumptions, paths), not be OS-agnostic/generic.
 
-- **Phase 3 — voice activation, speaker-locked.** User wants Groot voice-triggered
-  (wake word, not manual launch every time) AND gated so it only activates on *the user's*
-  voice specifically — not anyone else's. This is beyond the roadmap's original Phase 3
-  scope (which only mentioned optional TTS for output). Needs two offline local pieces:
-  a wake-word/activation engine, and a speaker verification step (voiceprint match against
-  an enrolled sample of the user) before Groot treats input as a real command. Must stay
-  fully offline per the hard constraints above. Not started — build in Phase 3.
+- **Phase 7 (or earlier) — Android support.** User wants Groot usable from Android, not
+  just PC. Architecture undecided: could be phone-as-remote-client (PC keeps running the
+  model, phone talks to it over local network — light, works on any phone) or fully
+  standalone on-device inference (via Termux + community Ollama/llama.cpp build — heavier,
+  no official Ollama Android app exists). User deferred the decision — revisit at latest by
+  Phase 7 (Portability), but keep it in mind earlier too: e.g. Phase 4's tool/permission
+  model and Phase 2's memory storage should not assume single-machine-only if avoidable.
+
+- **Phase 3 — voice activation, speaker-locked, always-on at boot.** User wants Groot
+  voice-triggered (wake word, not manual launch every time) AND gated so it only activates
+  on *the user's* voice specifically — not anyone else's. This is beyond the roadmap's
+  original Phase 3 scope (which only mentioned optional TTS for output). Needs two offline
+  local pieces: a wake-word/activation engine, and a speaker verification step (voiceprint
+  match against an enrolled sample of the user) before Groot treats input as a real
+  command. User also wants this always listening from laptop startup — i.e. the wake-word
+  listener should run as a background service (systemd user service, same pattern as the
+  Ollama service) that starts automatically at boot, not something launched manually each
+  session. Must stay fully offline per the hard constraints above. Not started — build in
+  Phase 3.
 
 - **Phase 4 — access model, decided.** User initially asked for full unrestricted
   file/command access by default with a toggle to restrict. Flagged that this contradicts
