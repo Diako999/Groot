@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from groot.config import load_config
 from groot.memory import MemoryStore
 from groot.ollama_client import OllamaClient, OllamaError
+from groot.persona import load_persona
 
 app = typer.Typer(add_completion=False)
 console = Console()
@@ -31,6 +32,7 @@ def chat():
     console.print(f"[bold cyan]Groot[/bold cyan] — model: {config.model}")
     console.print("Type 'exit' or Ctrl+C to quit.\n")
 
+    persona = {"role": "system", "content": load_persona()}
     history: list[dict] = []
 
     while True:
@@ -49,14 +51,15 @@ def chat():
         history.append({"role": "user", "content": user_input})
 
         remembered = memory.query(user_input)
-        messages_for_model = history
+        messages_for_model = [persona] + history
         if remembered:
             context_block = "\n".join(f"- {m}" for m in remembered)
             messages_for_model = [
+                persona,
                 {
                     "role": "system",
                     "content": f"Relevant memory from past sessions:\n{context_block}",
-                }
+                },
             ] + history
 
         console.print("[bold magenta]groot[/bold magenta] > ", end="")
