@@ -43,5 +43,14 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   design how Groot selects and invokes these capabilities (likely: a tool/skill registry
   it can call into, gated by the same permission system as file/command access).
 
+- **Phase 4 — access model, decided.** User initially asked for full unrestricted
+  file/command access by default with a toggle to restrict. Flagged that this contradicts
+  the roadmap's own Phase 4 spec (gated by default, nothing automatic) and the risk of
+  silent destructive actions. Decision: **gated by default**, with a session- or
+  folder-scoped trust toggle the user can flip to stop being prompted for a while, and
+  revoke anytime — mirrors the internet on/off switch already in the roadmap. Do not
+  build "full access by default" — build the toggle as an escape from confirmation
+  friction, not as a replacement for the default-deny posture.
+
 Update this file's Status section (not this whole file) as phases complete, so a fresh
 session can pick up state in one read instead of re-scanning history.
