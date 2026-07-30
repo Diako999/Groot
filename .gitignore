@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+
+# Memory / vector DB data (Phase 2+) — never committed, must stay portable via export instead
+memory/*
+!memory/.gitkeep
+
+# OS
+.DS_Store
