@@ -112,13 +112,44 @@ Read that file for the phase spec before starting any phase — don't re-derive 
     pipeline over the lighter few-shot approach, after seeing it needs a 16GB dataset):
     training assets live under `training/` (gitignored — scratch data, not the product).
     Separate Python 3.11 venv at `training/.venv-train` (see wheel-availability gotcha
-    above). Pipeline stages: `--generate_clips` (in progress: positive/validation samples
-    done, adversarial negatives generating), then `--augment_clips`, then `--train_model`.
-    Config at `training/hey_groot.yml`. **Once training finishes, copy the final
-    `hey_groot.onnx` out of `training/` into a git-tracked `models/` folder** (training/
-    itself is gitignored scratch space, but the trained model is a real runtime artifact
-    that should ship with the repo) and update `groot/config.py`'s `WAKEWORD_MODEL_FILE`
-    to point there instead of `training/my_custom_model/hey_groot.onnx`.
+    above). Config at `training/hey_groot.yml`.
+    **Status: pipeline fully debugged and validated end-to-end via a 100-step calibration
+    run — paused before the real run at user's request (it was very late; resume by just
+    launching the full run, nothing else left to fix).** `--generate_clips` and
+    `--augment_clips` are both genuinely complete (verify: `training/my_custom_model/
+    hey_groot/*.npy` should have all 4 feature files — positive/negative × train/test;
+    if only `positive_features_train.npy` exists, a prior run was interrupted and you
+    need `--augment_clips --overwrite` to regenerate all 4, since train.py's own
+    completeness check only looks at that one file). The 16GB
+    `openwakeword_features_ACAV100M_2000_hrs_16bit.npy` is fully downloaded. Next and
+    final step: `--train_model` (steps: 50000 in config). Calibration (100 steps) measured
+    steady-state throughput at ~2.5 it/s on this CPU-only i7 6th-gen box → **full run
+    estimated ~5.5-6 hours**, plan for it to run unattended in the background.
+    **Local patches applied to the cloned `training/openwakeword-src/openwakeword/
+    train.py`** (gitignored, so redo these if the clone is ever refreshed/re-cloned):
+    1) `scipy.special.sph_harm` compat shim (renamed to `sph_harm_y`, only
+    `acoustics.generator.noise()` is actually used, unrelated to the broken
+    directivity code path this satisfies the import for);
+    2) `torchaudio.info` compat shim via `soundfile` (torch_audiomentations 0.12.0 still
+    calls it; newer torchaudio removed it with no replacement);
+    3) **critical memory fix**: reduced the hardcoded `DataLoader(num_workers=os.cpu_count()//2,
+    prefetch_factor=16)` down to `num_workers=2, prefetch_factor=2`, and changed the
+    false-positive validation sliding-window stride from `1` (fully overlapping, builds a
+    ~3GB array from a 176MB file) to `input_shape[0]` (non-overlapping, ~1/16th the
+    memory) — without this, a real run exhausted all 14GB RAM + 4GB swap on this machine
+    before training even started;
+    4) fixed `argparse` defaults (`default="False"` as a *string* is truthy in Python, so
+    `--convert_to_tflite` and friends always evaluated true regardless of the flag —
+    changed to real `default=False`); this was silently trying to convert to TFLite (which
+    needs `tensorflow-cpu`, deliberately not installed — see wheel-availability gotcha)
+    even though we only want ONNX for PC use;
+    5) installed `onnxscript` (newer torch's ONNX exporter needs it, wasn't a
+    `piper-sample-generator`/`train.py` requirements-file dependency).
+    **Once training finishes, copy the final `hey_groot.onnx` out of `training/` into a
+    git-tracked `models/` folder** (training/ itself is gitignored scratch space, but the
+    trained model is a real runtime artifact that should ship with the repo) and update
+    `groot/config.py`'s `WAKEWORD_MODEL_FILE` to point there instead of
+    `training/my_custom_model/hey_groot.onnx`.
   - TTS (voice output): explicitly deferred by user choice — not building this pass.
 - Phases 4–7: not started.
 
