@@ -28,6 +28,50 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   modules per phase (e.g. `memory.py` in Phase 2, `tools.py` in Phase 4).
 - Confirm with the user before moving to the next phase (per roadmap kickoff prompt).
 
+## Environment gotchas (hard-won, don't re-discover)
+
+- **This machine's `/tmp` is a 7.4GB tmpfs (RAM-backed).** Any large pip install or
+  download must set `TMPDIR` to a path on the actual disk (e.g. the project directory)
+  or it fails with a misleading "Disk quota exceeded" error.
+- **Main runtime venv (`groot/.venv`) is Python 3.14.** Very new — many ML packages lag on
+  wheel support. Training tooling (Phase 3 voice) needed a **separate Python 3.11 venv**
+  (`training/.venv-train`) because `piper-phonemize` has no 3.14 (or even 3.12) Linux wheel,
+  only cp39-cp311. Check wheel availability (`pip index versions`, or the PyPI simple index)
+  before assuming a pinned package will install on whatever Python happens to be current.
+- **Always force CPU-only PyTorch explicitly**: `pip install torch --index-url
+  https://download.pytorch.org/whl/cpu`. Plain `pip install torch` (or anything that pulls
+  torch transitively, e.g. resemblyzer, torch-audiomentations) resolves the CUDA build by
+  default, dragging in several GB of NVIDIA CUDA runtime packages this hardware (4GB VRAM)
+  doesn't need. This bit us twice — once for the main venv, once for the training venv, and
+  a third time when `torch-audiomentations` silently reinstalled a CUDA-linked `torchaudio`
+  even after torch itself was CPU-only. After installing anything torch-adjacent, verify with
+  `python -c "import torch; print(torch.__version__, torch.cuda.is_available())"`.
+- **`git clone` over HTTPS to github.com times out on this network**, even though plain
+  HTTPS GET/HEAD to github.com works fine. Use `codeload.github.com/<org>/<repo>/tar.gz/refs/heads/<branch>`
+  (or `refs/tags/<tag>`) tarball downloads instead of `git clone`. Same family of issue as
+  `ollama.com` returning 403 while `registry.ollama.ai` works — this network/ISP seems to
+  selectively break specific protocols/hosts, not a blanket block.
+- **Old pinned ML package versions vs. a fresh environment = frequent breakage.** Hit this
+  repeatedly setting up openWakeWord's custom training pipeline (dscripka/openWakeWord,
+  cloned from GitHub — the pip package doesn't include training scripts): `tensorflow-cpu==2.8.1`
+  has no wheel for anything remotely current (skip it — only needed for optional TFLite
+  export via `--convert_to_tflite`, ONNX-only is fine for a PC); `datasets==2.14.6` breaks
+  against modern `pyarrow` (upgrade to latest `datasets` instead of fighting the pin);
+  newer `datasets` moved audio decoding to a separate `torchcodec` package which itself
+  needs system FFmpeg (`sudo apt install ffmpeg`) and returns an `AudioDecoder` object
+  (`.get_all_samples()` → `.data`/`.sample_rate`) rather than the old `{"path","array"}`
+  dict; `rudraml/fma` uses a deprecated dataset-loading-script format HF no longer supports
+  at all (switched to `ashraq/esc50` instead). General lesson: when a tutorial/notebook pins
+  exact versions from ~2023, expect several of them to be dead on arrival in 2026 — check
+  each one rather than installing the full pinned list blind.
+- **`piper-sample-generator` breaking change**: current PyPI release (3.2.0) was refactored
+  into a CLI package and no longer has the top-level `generate_samples.py` script/function
+  that openWakeWord's `train.py` imports directly (`from generate_samples import
+  generate_samples`). Use the `v2.0.0` tag instead (matches the LibriTTS checkpoint release
+  openWakeWord's pipeline expects anyway) - download via codeload tarball, not pip install.
+  Also needed one manual patch: `torch.load(model_path)` → add `weights_only=False` (PyTorch
+  2.6+ changed the default; fine since the checkpoint is from the official GitHub release).
+
 ## Status
 
 - **Phase 1 (Foundation): complete.** Ollama installed (v0.32.5, via GitHub release —
@@ -43,7 +87,40 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   not persisted back into `history`), store both sides of every turn after. Verified
   retrieval works across a brand-new process (not just same-session history) — a fact
   stated in one `groot` invocation was correctly recalled in a completely separate one.
-- Phases 3–7: not started. Confirm with user before starting Phase 3.
+- **Phase 3 (Personality & Voice): in progress.**
+  - Persona (`persona.txt` + `groot/persona.py`): done, verified tone shift in output.
+  - Chat/memory logic refactored into `groot/conversation.py` (`GrootSession`), shared by
+    both `groot chat` and the voice listener — avoids duplicating persona/memory wiring.
+  - Voice stack decided and installed in the **main** venv (Python 3.14):
+    `openwakeword`, `sounddevice` (+ system `libportaudio2`), `resemblyzer` (CPU-only
+    torch, forced via `--index-url https://download.pytorch.org/whl/cpu`),
+    `faster-whisper` (STT, model `small.en`, downloads from HF on first use).
+  - Speaker enrollment/verification: `groot/speaker.py` + `groot/audio_io.py`, wired as
+    `python -m groot.cli enroll`. Voiceprint saved to `voiceprint.npy` (gitignored,
+    biometric data). Sanity-tested with synthetic TTS voices (not yet with the user's
+    real voice — do that once the wake-word model is ready).
+  - STT: `groot/stt.py` wraps faster-whisper. Verified end-to-end: transcribed a
+    synthetic "hey groot" sample correctly.
+  - Always-on listener: `groot/listen.py`, wired as `python -m groot.cli listen`. Combines
+    wake-word detection → speaker verification → STT → `GrootSession.turn()`. Written but
+    **not yet tested against a real trained model or live mic** — blocked on training.
+  - systemd user service drafted at `systemd/groot-listen.service` (paths quoted because
+    the project lives under a space-containing path outside `$HOME`, so `%h` doesn't
+    apply). **Not yet installed/enabled** — do that only after the model is trained and
+    voice is enrolled and confirmed working via manual `groot listen` first.
+  - **Custom "Hey Groot" wake-word training** (user chose the full official openWakeWord
+    pipeline over the lighter few-shot approach, after seeing it needs a 16GB dataset):
+    training assets live under `training/` (gitignored — scratch data, not the product).
+    Separate Python 3.11 venv at `training/.venv-train` (see wheel-availability gotcha
+    above). Pipeline stages: `--generate_clips` (in progress: positive/validation samples
+    done, adversarial negatives generating), then `--augment_clips`, then `--train_model`.
+    Config at `training/hey_groot.yml`. **Once training finishes, copy the final
+    `hey_groot.onnx` out of `training/` into a git-tracked `models/` folder** (training/
+    itself is gitignored scratch space, but the trained model is a real runtime artifact
+    that should ship with the repo) and update `groot/config.py`'s `WAKEWORD_MODEL_FILE`
+    to point there instead of `training/my_custom_model/hey_groot.onnx`.
+  - TTS (voice output): explicitly deferred by user choice — not building this pass.
+- Phases 4–7: not started.
 
 ## Future requirements (noted now, built later)
 

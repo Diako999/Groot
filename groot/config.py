@@ -19,9 +19,12 @@ DEFAULTS = {
     "model": "qwen2.5-coder:7b-instruct-q4_K_M",
     "ollama_host": "http://localhost:11434",
     "embedding_model": "nomic-embed-text",
+    "stt_model": "small.en",
+    "wakeword_model": "hey_groot",
 }
 
 MEMORY_DIR = PROJECT_ROOT / "memory" / "chroma"
+WAKEWORD_MODEL_FILE = PROJECT_ROOT / "training" / "my_custom_model" / "hey_groot.onnx"
 
 
 @dataclass
@@ -29,6 +32,8 @@ class Config:
     model: str
     ollama_host: str
     embedding_model: str
+    stt_model: str
+    wakeword_model: str
 
 
 def load_config() -> Config:
@@ -42,5 +47,7 @@ def load_config() -> Config:
     values["model"] = os.environ.get("GROOT_MODEL", values["model"])
     values["ollama_host"] = os.environ.get("GROOT_OLLAMA_HOST", values["ollama_host"])
     values["embedding_model"] = os.environ.get("GROOT_EMBEDDING_MODEL", values["embedding_model"])
+    values["stt_model"] = os.environ.get("GROOT_STT_MODEL", values["stt_model"])
+    values["wakeword_model"] = os.environ.get("GROOT_WAKEWORD_MODEL", values["wakeword_model"])
 
     return Config(**values)

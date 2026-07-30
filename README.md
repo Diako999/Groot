@@ -28,7 +28,13 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python -m groot.cli
+python -m groot.cli chat
+```
+
+To enable speaker-locked voice activation later, first enroll your voice:
+
+```bash
+python -m groot.cli enroll
 ```
 
 Chats with the local model over Ollama's REST API (`http://localhost:11434` by default).

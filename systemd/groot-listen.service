@@ -1,0 +1,12 @@
+[Unit]
+Description=Groot always-on voice listener (wake word + speaker verification)
+After=default.target sound.target
+
+[Service]
+ExecStart="/run/media/diako/New Volume/projects/Groot/.venv/bin/python" -m groot.cli listen
+WorkingDirectory="/run/media/diako/New Volume/projects/Groot"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

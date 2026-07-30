@@ -8,6 +8,12 @@ venv/
 # Env / secrets
 .env
 
+# Speaker voiceprint (Phase 3) — biometric data, never committed
+voiceprint.npy
+
+# Training-only assets (Phase 3 wake-word) — large datasets/venvs, not part of the product
+training/
+
 # Memory / vector DB data (Phase 2+) — never committed, must stay portable via export instead
 memory/*
 !memory/.gitkeep
