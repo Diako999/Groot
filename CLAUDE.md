@@ -126,16 +126,6 @@ Read that file for the phase spec before starting any phase — don't re-derive 
     enrollment (`python -m groot.cli enroll`) was only sanity-tested with synthetic TTS
     voices so far, and `python -m groot.cli listen` hasn't been tried with a live mic. Do
     that next, before installing the systemd service.
-    `--generate_clips` and
-    `--augment_clips` are both genuinely complete (verify: `training/my_custom_model/
-    hey_groot/*.npy` should have all 4 feature files — positive/negative × train/test;
-    if only `positive_features_train.npy` exists, a prior run was interrupted and you
-    need `--augment_clips --overwrite` to regenerate all 4, since train.py's own
-    completeness check only looks at that one file). The 16GB
-    `openwakeword_features_ACAV100M_2000_hrs_16bit.npy` is fully downloaded. Next and
-    final step: `--train_model` (steps: 50000 in config). Calibration (100 steps) measured
-    steady-state throughput at ~2.5 it/s on this CPU-only i7 6th-gen box → **full run
-    estimated ~5.5-6 hours**, plan for it to run unattended in the background.
     **Local patches applied to the cloned `training/openwakeword-src/openwakeword/
     train.py`** (gitignored, so redo these if the clone is ever refreshed/re-cloned):
     1) `scipy.special.sph_harm` compat shim (renamed to `sph_harm_y`, only
@@ -156,11 +146,6 @@ Read that file for the phase spec before starting any phase — don't re-derive 
     even though we only want ONNX for PC use;
     5) installed `onnxscript` (newer torch's ONNX exporter needs it, wasn't a
     `piper-sample-generator`/`train.py` requirements-file dependency).
-    **Once training finishes, copy the final `hey_groot.onnx` out of `training/` into a
-    git-tracked `models/` folder** (training/ itself is gitignored scratch space, but the
-    trained model is a real runtime artifact that should ship with the repo) and update
-    `groot/config.py`'s `WAKEWORD_MODEL_FILE` to point there instead of
-    `training/my_custom_model/hey_groot.onnx`.
   - TTS (voice output): explicitly deferred by user choice — not building this pass.
 - Phases 4–7: not started.
 
