@@ -24,7 +24,7 @@ DEFAULTS = {
 }
 
 MEMORY_DIR = PROJECT_ROOT / "memory" / "chroma"
-WAKEWORD_MODEL_FILE = PROJECT_ROOT / "training" / "my_custom_model" / "hey_groot.onnx"
+WAKEWORD_MODEL_FILE = PROJECT_ROOT / "models" / "hey_groot.onnx"
 
 
 @dataclass

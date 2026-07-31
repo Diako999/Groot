@@ -102,8 +102,10 @@ Read that file for the phase spec before starting any phase — don't re-derive 
   - STT: `groot/stt.py` wraps faster-whisper. Verified end-to-end: transcribed a
     synthetic "hey groot" sample correctly.
   - Always-on listener: `groot/listen.py`, wired as `python -m groot.cli listen`. Combines
-    wake-word detection → speaker verification → STT → `GrootSession.turn()`. Written but
-    **not yet tested against a real trained model or live mic** — blocked on training.
+    wake-word detection → speaker verification → STT → `GrootSession.turn()`. Written and
+    the wake-word model is now trained (see below) — **still needs a real end-to-end test
+    with the user's actual voice** (enrollment so far only sanity-tested with synthetic
+    TTS voices) before this is confirmed working, and before the systemd service goes in.
   - systemd user service drafted at `systemd/groot-listen.service` (paths quoted because
     the project lives under a space-containing path outside `$HOME`, so `%h` doesn't
     apply). **Not yet installed/enabled** — do that only after the model is trained and
@@ -113,9 +115,18 @@ Read that file for the phase spec before starting any phase — don't re-derive 
     training assets live under `training/` (gitignored — scratch data, not the product).
     Separate Python 3.11 venv at `training/.venv-train` (see wheel-availability gotcha
     above). Config at `training/hey_groot.yml`.
-    **Status: pipeline fully debugged and validated end-to-end via a 100-step calibration
-    run — paused before the real run at user's request (it was very late; resume by just
-    launching the full run, nothing else left to fix).** `--generate_clips` and
+    **Status: training complete.** Full 50,000-step run finished successfully: Accuracy
+    0.669, Recall 0.340, False Positives/hour 0.088 (beats the 0.2 target). Verified via
+    openWakeWord's own `Model` class — loads correctly, ~0 confidence on random noise,
+    0.93-0.97 confidence on 4/5 real positive test samples (the 34% recall means it won't
+    catch every utterance, but this is a real working v1, not a placeholder). Final model
+    copied from the gitignored `training/` scratch folder to the git-tracked
+    `models/hey_groot.onnx`, and `groot/config.py`'s `WAKEWORD_MODEL_FILE` updated to point
+    there. **Not yet done: real end-to-end test with the user's actual voice** — speaker
+    enrollment (`python -m groot.cli enroll`) was only sanity-tested with synthetic TTS
+    voices so far, and `python -m groot.cli listen` hasn't been tried with a live mic. Do
+    that next, before installing the systemd service.
+    `--generate_clips` and
     `--augment_clips` are both genuinely complete (verify: `training/my_custom_model/
     hey_groot/*.npy` should have all 4 feature files — positive/negative × train/test;
     if only `positive_features_train.npy` exists, a prior run was interrupted and you
