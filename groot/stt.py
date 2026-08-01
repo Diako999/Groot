@@ -22,5 +22,10 @@ def _get_model(model_size: str) -> WhisperModel:
 def transcribe(audio: np.ndarray, config: Config) -> str:
     """Transcribe 16kHz mono float32 audio to text."""
     model = _get_model(config.stt_model)
-    segments, _ = model.transcribe(audio, language="en")
+    segments, _ = model.transcribe(
+        audio,
+        language="en",
+        beam_size=5,  # wider search than the default greedy decode - meaningfully more accurate, still fast on CPU for short clips
+        vad_filter=True,  # trims leading/trailing silence and noise before transcribing, instead of feeding the whole raw window
+    )
     return " ".join(segment.text.strip() for segment in segments).strip()

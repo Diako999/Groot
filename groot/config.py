@@ -19,7 +19,7 @@ DEFAULTS = {
     "model": "qwen2.5-coder:7b-instruct-q4_K_M",
     "ollama_host": "http://localhost:11434",
     "embedding_model": "nomic-embed-text",
-    "stt_model": "small.en",
+    "stt_model": "medium.en",
     "wakeword_model": "hey_groot",
 }
 

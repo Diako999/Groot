@@ -13,11 +13,19 @@ Each POLL_BLOCK_SECONDS block is recorded whole (continuous, matching the
 proven-working pattern) then sliced into model-sized chunks in software -
 only the brief gap *between* blocks (while sd.rec() restarts) is a risk, not
 gaps within a block, so the block is sized to comfortably fit one utterance.
+
+After the wake word, a single trigger opens a whole CONVERSATION: commands
+are recorded until you stop talking (silence-based, not a fixed window) and
+Groot keeps listening for follow-ups without needing "Hey Groot" again,
+until you go quiet for CONVERSATION_IDLE_SECONDS.
 """
 
 from __future__ import annotations
 
+import os
+import re
 import time
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
@@ -35,8 +43,23 @@ console = Console()
 CHUNK_SIZE = 1280  # 80ms at 16kHz — openWakeWord's expected feed size
 POLL_BLOCK_SECONDS = 1.6  # recorded as one continuous block, then sliced into chunks
 WAKEWORD_THRESHOLD = 0.08
-COMMAND_SECONDS = 5.0  # how long to record the command after the wake word triggers
+
+# Silence-based command recording: keep recording until the user goes quiet,
+# rather than a fixed window that cuts off longer commands mid-sentence.
+SILENCE_SUBCHUNK_SECONDS = 0.5
+SILENCE_RMS_THRESHOLD = 500  # observed quiet-room noise floor is ~500-1000
+SILENCE_HANGOVER_SECONDS = 3.0  # stop after this much continuous quiet
+MAX_RECORD_SECONDS = 25.0  # hard cap so a stuck mic can't record forever
 POST_TRIGGER_DISCARD_SECONDS = 0.5  # absorb trailing "...groot" audio before recording the command
+
+# After a command, keep listening for follow-ups without re-saying the wake
+# word - if the user stays silent this long, fall back to wake-word polling.
+CONVERSATION_IDLE_SECONDS = 12.0
+
+SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+
+# Set GROOT_DEBUG_AUDIO_DIR to dump every captured block to disk for offline inspection
+DEBUG_DUMP_DIR = Path(os.environ["GROOT_DEBUG_AUDIO_DIR"]) if os.environ.get("GROOT_DEBUG_AUDIO_DIR") else None
 
 
 def listen() -> None:
@@ -56,6 +79,8 @@ def listen() -> None:
     session = GrootSession(config)
 
     console.print('[bold cyan]Groot[/bold cyan] is listening for "Hey Groot"... (Ctrl+C to stop)')
+    if DEBUG_DUMP_DIR is not None:
+        console.print(f"[dim]debug audio dump: {DEBUG_DUMP_DIR}[/dim]")
 
     try:
         while True:
@@ -70,48 +95,74 @@ def listen() -> None:
                     triggered = True
                     break
 
-            console.print(f"[dim]· block max score: {block_max:.3f}[/dim]")
+            rms = float(np.sqrt(np.mean(block.astype(np.float64) ** 2)))
+            console.print(f"[dim]· RMS {rms:7.0f}  score: {block_max:.3f}[/dim]")
+            if DEBUG_DUMP_DIR is not None:
+                import scipy.io.wavfile as _wavfile
+                DEBUG_DUMP_DIR.mkdir(exist_ok=True)
+                _wavfile.write(str(DEBUG_DUMP_DIR / f"block_{int(time.time()*1000)}.wav"), SAMPLE_RATE, block)
             if not triggered:
                 continue
 
             console.print("[dim]wake word detected...[/dim]")
             _record_seconds(POST_TRIGGER_DISCARD_SECONDS)  # absorb trailing wake-word audio
-            console.print("[dim]listening for your command...[/dim]")
-            command_audio = _record_seconds(COMMAND_SECONDS)
 
             try:
-                score = speaker.similarity_score(command_audio, SAMPLE_RATE)
-                console.print(f"[dim]speaker similarity: {score:.3f}[/dim]")
-                if score < speaker.DEFAULT_THRESHOLD:
-                    console.print("[yellow]Voice not recognized — ignoring.[/yellow]")
-                    continue
+                # Conversation loop: keep handling commands without needing the wake
+                # word again, until the user goes quiet for CONVERSATION_IDLE_SECONDS.
+                while True:
+                    console.print("[dim]listening for your command...[/dim]")
+                    command_audio, spoke = _record_until_silence(CONVERSATION_IDLE_SECONDS)
+                    if not spoke:
+                        console.print("[dim]conversation idle, back to wake-word listening.[/dim]")
+                        break
 
-                text = stt.transcribe(command_audio, config)
-                if not text:
-                    console.print("[yellow]Didn't catch that.[/yellow]")
-                    continue
+                    score = speaker.similarity_score(command_audio, SAMPLE_RATE)
+                    console.print(f"[dim]speaker similarity: {score:.3f}[/dim]")
+                    if score < speaker.DEFAULT_THRESHOLD:
+                        console.print("[yellow]Voice not recognized — ignoring.[/yellow]")
+                        continue
 
-                console.print(f"[bold green]you[/bold green] > {text}")
-                console.print("[bold magenta]groot[/bold magenta] > ", end="")
-                reply = ""
-                try:
-                    for piece in session.turn(text):
-                        console.print(piece, end="")
-                        reply += piece
-                except OllamaError as e:
-                    console.print(f"\n[red]{e}[/red]")
-                    continue
-                console.print()
-                tts.speak(reply)
+                    text = stt.transcribe(command_audio, config)
+                    if not text:
+                        console.print("[yellow]Didn't catch that.[/yellow]")
+                        continue
+
+                    console.print(f"[bold green]you[/bold green] > {text}")
+                    console.print("[bold magenta]groot[/bold magenta] > ", end="")
+                    _speak_reply_as_it_streams(session, text)
+                    console.print()
+                    sd.stop()  # ensure the output stream is fully torn down before switching back to input
+            except OllamaError as e:
+                console.print(f"\n[red]{e}[/red]")
             finally:
-                # A full turn involves several seconds of speaker verification, STT, and
-                # an LLM call - the audio device needs more than the usual inter-poll
-                # settle time to recover cleanly afterward, and the wake-word model's
-                # internal buffer should start fresh rather than carry stale state.
-                oww_model.reset()
-                time.sleep(1.0)
+                # After using the mic/speaker for a while, the wake-word model's
+                # internal audio-feature preprocessor gets stuck (verified: mic RMS
+                # keeps varying with real speech, but score stays frozen near 0 no
+                # matter how long you wait or how many predict() calls happen).
+                # Model.reset() only clears an unrelated prediction-smoothing
+                # buffer, not the preprocessor's internal state, so it doesn't fix
+                # this - recreate the model outright.
+                oww_model = Model(wakeword_model_paths=[str(WAKEWORD_MODEL_FILE)])
+                wakeword_name = next(iter(oww_model.models.keys()))
+                time.sleep(0.5)
     except KeyboardInterrupt:
         console.print("\n[dim]bye.[/dim]")
+
+
+def _speak_reply_as_it_streams(session: GrootSession, text: str) -> None:
+    """Print + speak the reply sentence-by-sentence as it streams in, instead of
+    waiting for the whole response before speaking (which felt sluggish/unsynced)."""
+    buffer = ""
+    for piece in session.turn(text):
+        console.print(piece, end="")
+        buffer += piece
+        parts = SENTENCE_END_RE.split(buffer)
+        for sentence in parts[:-1]:
+            tts.speak(sentence)
+        buffer = parts[-1]
+    if buffer.strip():
+        tts.speak(buffer)
 
 
 def _record_int16(duration: float) -> np.ndarray:
@@ -125,3 +176,34 @@ def _record_int16(duration: float) -> np.ndarray:
 def _record_seconds(duration: float) -> np.ndarray:
     """Blocking-record `duration` seconds as flat float32 in [-1, 1]."""
     return _record_int16(duration).astype(np.float32) / 32768.0
+
+
+def _record_until_silence(max_wait_for_speech: float) -> tuple[np.ndarray, bool]:
+    """Record until SILENCE_HANGOVER_SECONDS of quiet follows speech, or
+    MAX_RECORD_SECONDS elapses. Returns (audio, spoke) - `spoke` is False if
+    the user never made any sound above the noise floor within
+    `max_wait_for_speech` (used to detect the end of a conversation)."""
+    chunks: list[np.ndarray] = []
+    silence_run = 0.0
+    total = 0.0
+    ever_spoke = False
+
+    while total < MAX_RECORD_SECONDS:
+        sub = _record_int16(SILENCE_SUBCHUNK_SECONDS)
+        chunks.append(sub)
+        total += SILENCE_SUBCHUNK_SECONDS
+        rms = float(np.sqrt(np.mean(sub.astype(np.float64) ** 2)))
+
+        if rms >= SILENCE_RMS_THRESHOLD:
+            ever_spoke = True
+            silence_run = 0.0
+        else:
+            silence_run += SILENCE_SUBCHUNK_SECONDS
+
+        if ever_spoke and silence_run >= SILENCE_HANGOVER_SECONDS:
+            break
+        if not ever_spoke and total >= max_wait_for_speech:
+            break
+
+    audio_int16 = np.concatenate(chunks)
+    return audio_int16.astype(np.float32) / 32768.0, ever_spoke
