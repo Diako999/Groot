@@ -14,7 +14,7 @@ from resemblyzer import VoiceEncoder, preprocess_wav
 from groot.config import PROJECT_ROOT
 
 VOICEPRINT_FILE = PROJECT_ROOT / "voiceprint.npy"
-DEFAULT_THRESHOLD = 0.75
+DEFAULT_THRESHOLD = 0.4
 
 _encoder: VoiceEncoder | None = None
 
@@ -48,12 +48,16 @@ def enroll_from_audio(clips: list[np.ndarray], sample_rate: int) -> None:
     np.save(VOICEPRINT_FILE, voiceprint)
 
 
-def verify_audio(clip: np.ndarray, sample_rate: int, threshold: float = DEFAULT_THRESHOLD) -> bool:
-    """Return True if the given audio matches the enrolled voiceprint closely enough."""
+def similarity_score(clip: np.ndarray, sample_rate: int) -> float:
+    """Cosine similarity between the given audio and the enrolled voiceprint."""
     if not is_enrolled():
         raise RuntimeError("No voiceprint enrolled yet - run `python -m groot.cli enroll` first.")
     voiceprint = np.load(VOICEPRINT_FILE)
     encoder = _get_encoder()
     embed = encoder.embed_utterance(preprocess_wav(clip, source_sr=sample_rate))
-    similarity = float(np.dot(voiceprint, embed) / (np.linalg.norm(voiceprint) * np.linalg.norm(embed)))
-    return similarity >= threshold
+    return float(np.dot(voiceprint, embed) / (np.linalg.norm(voiceprint) * np.linalg.norm(embed)))
+
+
+def verify_audio(clip: np.ndarray, sample_rate: int, threshold: float = DEFAULT_THRESHOLD) -> bool:
+    """Return True if the given audio matches the enrolled voiceprint closely enough."""
+    return similarity_score(clip, sample_rate) >= threshold

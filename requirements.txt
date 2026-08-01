@@ -11,3 +11,4 @@ openwakeword>=0.4
 sounddevice>=0.5
 resemblyzer>=0.1.4
 faster-whisper>=1.2
+piper-tts>=1.6

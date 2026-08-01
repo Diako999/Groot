@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 
-from groot import speaker
+from groot import speaker, tts
 from groot.audio_io import SAMPLE_RATE, record_seconds
 from groot.config import load_config
 from groot.conversation import GrootSession
@@ -49,14 +49,17 @@ def chat():
             continue
 
         console.print("[bold magenta]groot[/bold magenta] > ", end="")
+        reply = ""
         try:
             for chunk in session.turn(user_input):
                 console.print(chunk, end="")
+                reply += chunk
         except OllamaError as e:
             console.print(f"\n[red]{e}[/red]")
             continue
 
         console.print()
+        tts.speak(reply)
 
 
 @app.command()
